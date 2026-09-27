@@ -1,0 +1,20 @@
+{
+  "name": "@sujstack/obs-adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./console": "./src/console.ts",
+    "./sentry": "./src/sentry.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sentry/nextjs": "10.70.0",
+    "@sujstack/obs-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

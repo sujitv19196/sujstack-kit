@@ -1,0 +1,22 @@
+{
+  "name": "@sujstack/db-adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./kv/memory": "./src/kv/memory.ts",
+    "./vector/memory": "./src/vector/memory.ts",
+    "./postgres": "./src/postgres.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sujstack/db-core": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
