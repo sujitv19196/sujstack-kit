@@ -1,17 +1,17 @@
 {
-  "name": "@sujstack/trpc-core",
+  "name": "@sujstack/webhook-core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@sujstack/obs-core": "workspace:*",
-    "@trpc/server": "11.18.0"
+    "@sujstack/obs-core": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -1,21 +1,22 @@
-import { defineCatalog, defineCounter, type Metrics } from "@sujstack/metrics-core"
 import type { Log } from "@sujstack/obs-core"
-import { initTRPC } from "@trpc/server"
+import { initTRPC, type TRPCError, type TRPCProcedureType } from "@trpc/server"
 import { GENERIC_API_ERROR_MESSAGE } from "./errors"
 
-/** Spread into the app's `defineCatalog` call, so its catalog is a superset of `trpcCounters`. */
-export const trpcCounterDefs = {
-  "trpc.requests": defineCounter<{ outcome: "ok" | "client_error" | "server_error" }>({
-    description: "tRPC procedure calls that reached a procedure, by outcome",
-  }),
-}
-
-export const trpcCounters = defineCatalog(trpcCounterDefs)
+/** One call that reached a procedure, as reported to `onCall`. */
+export type TrpcCall = {
+  readonly path: string
+  readonly type: TRPCProcedureType
+  readonly durationMs: number
+} & (
+  | { readonly outcome: "ok" }
+  | { readonly outcome: "client_error" | "server_error"; readonly error: TRPCError }
+)
 
 /** What the middleware needs from every app's context. */
 export interface BaseContext {
   readonly log: Log
-  readonly metrics: Metrics<typeof trpcCounters>
+  /** Runs after every call `logged` sees; count it here. */
+  readonly onCall: (call: TrpcCall) => void
 }
 
 export function createTrpc<C extends BaseContext>({
@@ -35,9 +36,9 @@ export function createTrpc<C extends BaseContext>({
   })
 
   /**
-   * Emits one `trpc.<path>` event and one `trpc.requests` increment per resolved call. Errors that
-   * never reach a procedure are logged by the handler's `onError` under the flat `trpc.failed`
-   * message instead, and are not counted.
+   * Emits one `trpc.<path>` event and one `ctx.onCall` per resolved call. Errors that never reach a
+   * procedure are logged by the handler's `onError` under the flat `trpc.failed` message instead,
+   * and are not reported.
    */
   const logged = t.middleware(async ({ ctx, path, type, next }) => {
     const startedAt = performance.now()
@@ -46,10 +47,10 @@ export function createTrpc<C extends BaseContext>({
 
     if (result.ok) {
       ctx.log.info(`trpc.${path}`, fields)
-      ctx.metrics.increment("trpc.requests", { outcome: "ok" })
+      ctx.onCall({ ...fields, outcome: "ok" })
     } else if (result.error.code === "INTERNAL_SERVER_ERROR") {
       ctx.log.error(`trpc.${path}`, result.error, { ...fields, code: result.error.code })
-      ctx.metrics.increment("trpc.requests", { outcome: "server_error" })
+      ctx.onCall({ ...fields, outcome: "server_error", error: result.error })
     } else {
       // A client fault is not a system failure. Logging bad input at error level is the flood
       // this module exists to prevent, and the stack points at the validator, not at a bug.
@@ -58,7 +59,7 @@ export function createTrpc<C extends BaseContext>({
         code: result.error.code,
         detail: result.error.message,
       })
-      ctx.metrics.increment("trpc.requests", { outcome: "client_error" })
+      ctx.onCall({ ...fields, outcome: "client_error", error: result.error })
     }
 
     return result

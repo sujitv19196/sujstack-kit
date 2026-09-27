@@ -24,11 +24,13 @@ bun run check        # Biome lint + format
 | `ports/obs-core` — `@sujstack/obs-core` | `EventSink`, the `createLog` facade, a memory test sink. |
 | `ports/metrics-core` — `@sujstack/metrics-core` | `MetricSink`, typed counters, `createMetrics`, alert-rule builders, `renderRules`. |
 | `ports/trpc-core` — `@sujstack/trpc-core` | `createTrpc<Context>()`: the error mask, a bare `procedure` and the `logged` middleware. |
+| `ports/webhook-core` — `@sujstack/webhook-core` | `WebhookVerifier`, the logged `createWebhookHandler`, `WebhookDelivery`, a verifier contract suite. |
 | `adapters/db` — `@sujstack/db-adapters` | `./kv/memory`, `./vector/memory`, `./postgres` |
 | `adapters/obs` — `@sujstack/obs-adapters` | `./console`, `./sentry` |
 | `adapters/metrics` — `@sujstack/metrics-adapters` | `./console`, `./otlp` |
 
-Ports have no third-party runtime dependencies (`trpc-core` aside, which is tRPC plumbing). Each
+Ports have no third-party runtime dependencies (`trpc-core` aside, which is tRPC plumbing).
+`webhook-core` has no adapters package: verifiers are written by the app. Each
 adapter is its own subpath export, so importing the console sink never pulls in Sentry or OTel.
 
 ## Ports and adapters
@@ -77,7 +79,6 @@ The message is a free-form string chosen by the caller. Keep it static and put t
 
 ```ts
 const counters = defineCatalog({
-  ...trpcCounterDefs,
   "app.signups": defineCounter<{ plan: "free" | "pro" }>({ description: "Completed signups" }),
 })
 const metrics = createMetrics(counters, sinks)
@@ -97,13 +98,66 @@ export const publicProcedure = baseProcedure
 export const protectedProcedure = baseProcedure.use(requireAuth)
 ```
 
-`Context` must extend `BaseContext` (`log`, and `metrics` over a catalog that includes
-`trpcCounterDefs`). The kit hands back a bare `procedure` and the `logged` middleware; the app
-composes its own base procedures from them. Every call through `logged` is logged as `trpc.<path>`
-and counted in `trpc.requests{outcome}`: `INTERNAL_SERVER_ERROR` at `error` with the cause, every
-other code at `warn` with its detail. Errors that never reach a procedure are the app's handler's job.
+`Context` must extend `BaseContext`: `log`, and `onCall(call: TrpcCall)`. The kit hands back a bare
+`procedure` and the `logged` middleware; the app composes its own base procedures from them. Every
+call through `logged` is logged as `trpc.<path>` — `INTERNAL_SERVER_ERROR` at `error` with the
+cause, every other code at `warn` with its detail — and then passed to `ctx.onCall`, where the app
+counts it:
+
+```ts
+onCall: (call) => metrics.increment("trpc.requests", { outcome: call.outcome })
+```
+
+Errors that never reach a procedure are the app's handler's job.
+
+## Webhooks
+
+```ts
+export const POST = createWebhookHandler({
+  source: "stripe",
+  verifier: createStripeVerifier(secret),  // the app's own WebhookVerifier
+  log,
+  handle: async (event) => { ... },        // event: { id, type, payload }
+  onDelivery: ({ outcome }) => metrics.increment("webhooks.received", { source: "stripe", outcome }),
+})
+```
+
+A `WebhookVerifier` checks one provider's signature scheme against the raw body and extracts the
+event, or rejects with a `reason`. The handler reads the raw body, verifies it, and only then calls
+`handle`. Each delivery is logged as `webhook.<source>` and then passed to `onDelivery` as a
+`WebhookDelivery`: accepted at `info` (200), rejected at `warn` with its reason (401, or 400 for
+`malformed`) without reaching `handle`, and a throw from `handle` at `error` with the cause (500, so
+the provider retries). Prove a verifier conforms with the contract suite:
+
+```ts
+import { runVerifierContract } from "@sujstack/webhook-core/testing"
+runVerifierContract("stripe", { verifier, body: sampleDelivery, sign: signLikeStripe })
+```
+
+Providers retry, so the same event can arrive twice; `event.id` is stable across retries, and
+skipping repeats is the app's decision.
 
 ## Design decisions
+
+**Webhooks: a port with no adapters.** `webhook-core` owns what is the same for every provider —
+reading the raw body, verifying before parsing, mapping outcomes to status codes, and logging each
+delivery the way `logged` does for tRPC. It ships no Stripe or GitHub verifier:
+each is a few lines around the provider's own SDK, every scheme change upstream would become a kit
+release, and which providers exist is the app's choice. The contract suite is what the kit offers
+an app-written verifier instead. Deduplicating retries is also left to the app, which knows
+whether a repeat matters and where to record it.
+
+**The kit logs; the app counts.** `logged` and `createWebhookHandler` classify each call or delivery
+and log it, then hand a discriminated union (`TrpcCall`, `WebhookDelivery`) to a required callback;
+they never call `metrics.increment`. A kit that incremented would own the counter's name and exact
+label set, so an app could not add a label (a bounded event type, a tenant tier), rename the counter
+or split it without forking. Log fields are open, so logging has no such cost and stays in the kit.
+Counters then live only in the app's catalog, and the kit carries no label types: a kit-built
+counter generic over the app's sources could not check `Bounded` without a cast. `onCall` is a
+context field rather than a `createTrpc` option because tRPC cannot prove the middleware's `ctx` is
+the app's `C` while `C` is generic; on the context, it needs only `BaseContext`, and a test injects
+its own the same way it injects `log`. The cost is one line of mapping in the app per callback.
+
 
 **Messages are free-form; there is no event catalog.** Grouping is the backend's job — Sentry
 fingerprints on the stack and the message — so a hand-maintained list of keys in code would
@@ -145,8 +199,8 @@ gives the same compile-time checking at `increment` and in `select` as an `as co
 without the ceremony, and it can reuse unions the domain already has. A label typed as plain
 `string` is a compile error, so an unbounded label (a user id, a raw path) cannot be declared at
 all — that is the cardinality guard. The cost is no runtime validation and no way to enumerate a
-label's values; nothing needs either yet. This is also why `trpc.requests` has no `path` label:
-the middleware only has `path` as a `string`, and the per-path breakdown lives in the logs.
+label's values; nothing needs either yet. This is also why the app's `trpc.requests` has no `path` label:
+`TrpcCall.path` is a `string`, and the per-path breakdown lives in the logs.
 
 **Counters are cumulative, one series per instance.** Prometheus and Mimir expect cumulative
 temporality. Each process sets a random `service.instance.id`, which becomes the `instance` label,
@@ -165,7 +219,7 @@ every call runs — logging, then auth, rate limiting, tenancy — is the app's 
 choosing adapters is. So `createTrpc` returns the pieces (`procedure`, `logged`, `middleware`) and
 the app's `init.ts` assembles a logged base and the procedures built on it. The cost is that logging
 is no longer guaranteed by construction: a base procedure that skips `logged` goes unlogged and
-uncounted, and the `trpc.requests` alert stops seeing it.
+never reaches `onCall`, so the app's request counter and its alert stop seeing it.
 
 **No tRPC transformer.** superjson mainly exists to stop Drizzle `Date` columns arriving at the
 client as strings while the types still claim `Date`. Timestamp columns use `mode: "string"`

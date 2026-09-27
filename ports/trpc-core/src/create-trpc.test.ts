@@ -1,34 +1,27 @@
 import { expect, test } from "bun:test"
-import { createMetrics, defineCatalog, defineCounter, type Metrics } from "@sujstack/metrics-core"
-import { createMemorySink as createMetricSink } from "@sujstack/metrics-core/testing"
 import { createLog } from "@sujstack/obs-core"
 import { createMemorySink } from "@sujstack/obs-core/testing"
 import { TRPCError } from "@trpc/server"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
-import { type BaseContext, createTrpc, trpcCounterDefs, trpcCounters } from "./create-trpc"
+import { type BaseContext, createTrpc, type TrpcCall } from "./create-trpc"
 import { GENERIC_API_ERROR_MESSAGE } from "./errors"
 
 // Never called: `bun run typecheck` fails if any line below stops being a type error.
 function misuse() {
-  const appCounters = defineCatalog({
-    ...trpcCounterDefs,
-    "app.signups": defineCounter({ description: "" }),
-  })
-  const superset: Metrics<typeof trpcCounters> = createMetrics(appCounters, [])
-  const unrelated = defineCatalog({ "app.signups": defineCounter({ description: "" }) })
-  // @ts-expect-error a catalog without `trpc.requests` cannot back the middleware
-  const missing: Metrics<typeof trpcCounters> = createMetrics(unrelated, [])
-  return [superset, missing]
+  // @ts-expect-error a context without onCall cannot back the middleware
+  createTrpc<{ log: ReturnType<typeof createLog> }>()
+  const onCall = (call: TrpcCall) => {
+    // @ts-expect-error only a failed call carries an error
+    if (call.outcome === "ok") call.error
+  }
+  return onCall
 }
 void misuse
 
 function harness(options?: Parameters<typeof createTrpc>[0]) {
   const sink = createMemorySink()
-  const metricSink = createMetricSink()
-  const context: BaseContext = {
-    log: createLog([sink]),
-    metrics: createMetrics(trpcCounters, [metricSink]),
-  }
+  const calls: TrpcCall[] = []
+  const context: BaseContext = { log: createLog([sink]), onCall: (call) => calls.push(call) }
   const { router, procedure, logged, createCallerFactory } = createTrpc<BaseContext>(options)
   const publicProcedure = procedure.use(logged)
   const appRouter = router({
@@ -51,11 +44,11 @@ function harness(options?: Parameters<typeof createTrpc>[0]) {
     const body = (await response.json()) as { error: { message: string; data: object } }
     return body.error
   }
-  return { caller: createCallerFactory(appRouter)(context), fetchError, sink, metricSink }
+  return { caller: createCallerFactory(appRouter)(context), fetchError, sink, calls }
 }
 
-test("each outcome is logged and counted at its own severity", async () => {
-  const { caller, sink, metricSink } = harness()
+test("each outcome is logged at its own severity and reported to onCall", async () => {
+  const { caller, sink, calls } = harness()
 
   await caller.ok()
   await expect(caller.client()).rejects.toThrow("bad input")
@@ -67,11 +60,12 @@ test("each outcome is logged and counted at its own severity", async () => {
     ["trpc.server", "error"],
   ])
   expect(sink.written()[2]?.cause).toMatchObject({ message: "db-internal-7 refused" })
-  expect(metricSink.added().map((record) => record.labels.outcome)).toEqual([
-    "ok",
-    "client_error",
-    "server_error",
+  expect(calls.map((call) => [call.path, call.outcome])).toEqual([
+    ["ok", "ok"],
+    ["client", "client_error"],
+    ["server", "server_error"],
   ])
+  expect(calls[2]).toMatchObject({ error: { message: "db-internal-7 refused" } })
 })
 
 test("a server fault reaches the wire as the generic message, with no stack", async () => {
