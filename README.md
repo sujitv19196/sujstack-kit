@@ -1,11 +1,13 @@
 # sujstack-kit
 
-The ports and adapters behind [sujstack-demo](https://github.com/sujitv19196/sujstack-demo). An app
-mounts this repo as a git submodule at `kit/`, lists `kit/ports/*` and `kit/adapters/*` in its
-workspaces, and never edits inside it: taking an update is bumping the submodule's SHA.
+Ports and adapters for Bun + Next apps. An app mounts this repo as a git submodule at `kit/`, lists
+`kit/ports/*` and `kit/adapters/*` in its workspaces, and never edits inside it: taking an update
+is bumping the submodule's SHA.
 
 Packages are TypeScript source with no build step. The consuming app compiles them, e.g. via Next's
 `transpilePackages`.
+
+For a working app built on it, see [sujstack](https://github.com/sujitv19196/sujstack).
 
 ```bash
 bun install

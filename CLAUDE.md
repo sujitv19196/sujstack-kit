@@ -2,8 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-This is `sujstack-kit`: the ports and adapters that apps (e.g. `sujstack-demo`) mount as a git
-submodule at `kit/`. Nothing here may import from, or know about, a consuming app.
+This is `sujstack-kit`: the ports and adapters that apps mount as a git submodule at `kit/`.
+Nothing here may import from, or know about, a consuming app.
 
 ## Commands
 
