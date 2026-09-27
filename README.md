@@ -21,7 +21,7 @@ bun run check        # Biome lint + format
 | `ports/db-core` — `@sujstack/db-core` | `KeyValueStore`, `VectorStore`, `defineNamespace`, contract suites. |
 | `ports/obs-core` — `@sujstack/obs-core` | `EventSink`, the `createLog` facade, a memory test sink. |
 | `ports/metrics-core` — `@sujstack/metrics-core` | `MetricSink`, typed counters, `createMetrics`, alert-rule builders, `renderRules`. |
-| `ports/trpc-core` — `@sujstack/trpc-core` | `createTrpc<Context>()`: the logging/counting middleware and the error mask. |
+| `ports/trpc-core` — `@sujstack/trpc-core` | `createTrpc<Context>()`: the error mask, a bare `procedure` and the `logged` middleware. |
 | `adapters/db` — `@sujstack/db-adapters` | `./kv/memory`, `./vector/memory`, `./postgres` |
 | `adapters/obs` — `@sujstack/obs-adapters` | `./console`, `./sentry` |
 | `adapters/metrics` — `@sujstack/metrics-adapters` | `./console`, `./otlp` |
@@ -89,13 +89,17 @@ anything else uses the `promql` tag, whose interpolations must be counters or `s
 ## tRPC
 
 ```ts
-export const { router, publicProcedure, middleware, createCallerFactory } = createTrpc<Context>()
+const t = createTrpc<Context>({ genericErrorMessage: "Something went wrong." })  // option defaults to GENERIC_API_ERROR_MESSAGE
+const baseProcedure = t.procedure.use(t.logged)  // logged first: it wraps everything after it
+export const publicProcedure = baseProcedure
+export const protectedProcedure = baseProcedure.use(requireAuth)
 ```
 
 `Context` must extend `BaseContext` (`log`, and `metrics` over a catalog that includes
-`trpcCounterDefs`). Every call that reaches a procedure is logged as `trpc.<path>` and counted in
-`trpc.requests{outcome}`: `INTERNAL_SERVER_ERROR` at `error` with the cause, every other code at
-`warn` with its detail. Errors that never reach a procedure are the app's handler's job.
+`trpcCounterDefs`). The kit hands back a bare `procedure` and the `logged` middleware; the app
+composes its own base procedures from them. Every call through `logged` is logged as `trpc.<path>`
+and counted in `trpc.requests{outcome}`: `INTERNAL_SERVER_ERROR` at `error` with the cause, every
+other code at `warn` with its detail. Errors that never reach a procedure are the app's handler's job.
 
 ## Design decisions
 
@@ -149,10 +153,17 @@ On serverless this means one short-lived series per instance, and the periodic r
 last export interval when a function is frozen — an adapter concern, like the note on `write()`.
 
 **Errors are masked at the tRPC boundary, not only at render.** `errorFormatter` in `createTrpc`
-replaces an `INTERNAL_SERVER_ERROR`'s message with `GENERIC_API_ERROR_MESSAGE` and strips its stack,
+replaces an `INTERNAL_SERVER_ERROR`'s message with `genericErrorMessage` and strips its stack,
 so neither reaches the browser; the server keeps both in the log. Client faults keep their message,
 which the caller needs in order to fix the request. Masking only at render would hide a server
 fault from the user but not from the network tab.
+
+**The app composes its procedures; the kit does not hand back a finished one.** Which middleware
+every call runs — logging, then auth, rate limiting, tenancy — is the app's decision, the same way
+choosing adapters is. So `createTrpc` returns the pieces (`procedure`, `logged`, `middleware`) and
+the app's `init.ts` assembles a logged base and the procedures built on it. The cost is that logging
+is no longer guaranteed by construction: a base procedure that skips `logged` goes unlogged and
+uncounted, and the `trpc.requests` alert stops seeing it.
 
 **No tRPC transformer.** superjson mainly exists to stop Drizzle `Date` columns arriving at the
 client as strings while the types still claim `Date`. Timestamp columns use `mode: "string"`

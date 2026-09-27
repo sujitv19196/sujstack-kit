@@ -18,7 +18,11 @@ export interface BaseContext {
   readonly metrics: Metrics<typeof trpcCounters>
 }
 
-export function createTrpc<C extends BaseContext>() {
+export function createTrpc<C extends BaseContext>({
+  genericErrorMessage = GENERIC_API_ERROR_MESSAGE,
+}: {
+  genericErrorMessage?: string
+} = {}) {
   // No transformer: every payload is plain JSON.
   const t = initTRPC.context<C>().create({
     errorFormatter({ shape, error }) {
@@ -26,7 +30,7 @@ export function createTrpc<C extends BaseContext>() {
       // is replaced wholesale, so neither the message nor the stack reaches the browser.
       if (error.code !== "INTERNAL_SERVER_ERROR") return shape
       const { stack: _stack, ...data } = shape.data
-      return { ...shape, message: GENERIC_API_ERROR_MESSAGE, data }
+      return { ...shape, message: genericErrorMessage, data }
     },
   })
 
@@ -35,7 +39,7 @@ export function createTrpc<C extends BaseContext>() {
    * never reach a procedure are logged by the handler's `onError` under the flat `trpc.failed`
    * message instead, and are not counted.
    */
-  const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
+  const logged = t.middleware(async ({ ctx, path, type, next }) => {
     const startedAt = performance.now()
     const result = await next()
     const fields = { path, type, durationMs: Math.round(performance.now() - startedAt) }
@@ -62,7 +66,9 @@ export function createTrpc<C extends BaseContext>() {
 
   return {
     router: t.router,
-    publicProcedure,
+    /** Bare: attach `logged` (and anything else) in the app's own base procedures. */
+    procedure: t.procedure,
+    logged,
     middleware: t.middleware,
     createCallerFactory: t.createCallerFactory,
   }

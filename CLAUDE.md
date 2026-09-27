@@ -31,7 +31,7 @@ There is **no build step**. Packages are consumed as TypeScript source and compi
 | `ports/db-core` | `KeyValueStore`, `VectorStore`, `defineNamespace`, contract suites. Zero runtime dependencies. |
 | `ports/obs-core` | `EventSink` + the `createLog` facade. Zero runtime dependencies. |
 | `ports/metrics-core` | `MetricSink`, typed counters, `createMetrics`, rule builders. Zero runtime dependencies. |
-| `ports/trpc-core` | `createTrpc<C extends BaseContext>()`, `trpcCounterDefs`, `GENERIC_API_ERROR_MESSAGE`. |
+| `ports/trpc-core` | `createTrpc<C extends BaseContext>({ genericErrorMessage? })` → `procedure`, `logged`, `router`, …; `trpcCounterDefs`. |
 | `adapters/db` | `@sujstack/db-adapters`: `./kv/memory`, `./vector/memory`, `./postgres`. |
 | `adapters/obs` | `@sujstack/obs-adapters`: `./console`, `./sentry`. |
 | `adapters/metrics` | `@sujstack/metrics-adapters`: `./console`, `./otlp`. |
@@ -68,7 +68,10 @@ the app's composition root (`createPostgres({ url, schema })`, `createOtlpSink(o
   cardinality guard). `promName` in `ports/metrics-core/src/counter.ts` owns the OTLP → Prometheus
   name translation.
 - `createTrpc` is generic over the app's context. Keep the kit ignorant of any app type: the
-  middleware may only touch `BaseContext` (`log`, `metrics`).
+  middleware may only touch `BaseContext` (`log`, `metrics`). It returns a bare `procedure` and
+  `logged`, never a composed `publicProcedure`: composing base procedures is the app's job.
+  Don't call `t.procedure.use(builtMiddleware)` inside the generic function — tRPC cannot check it
+  while `C` is unresolved; the app does it once `C` is concrete.
 - `bun test` does **not** typecheck. Type-level assertions need `@ts-expect-error` in a file that
   `bun run typecheck` sees (see `ports/metrics-core/src/types.test.ts`,
   `ports/trpc-core/src/create-trpc.test.ts`).
