@@ -21,6 +21,11 @@ When mounted in an app, run these from inside `kit/`, and do **not** leave a `ki
 behind: it shadows the app's dependencies and yields duplicate `@trpc/server` types. Verify
 standalone in a separate clone instead.
 
+**Releases are tags derived from `package.json`.** Release with `bun pm version patch|minor|major`
+(bumps the root `version`, commits and tags `vX.Y.Z`), then `git push --follow-tags`. Never hand-edit
+`version` or create a tag separately, or they drift. `0.x` while the API settles: a breaking change
+bumps the minor. Apps pin their submodule to tags, never to untagged commits.
+
 There is **no build step**. Packages are consumed as TypeScript source and compiled by the app
 (e.g. Next's `transpilePackages`). A new package must be added to each consuming app's list.
 

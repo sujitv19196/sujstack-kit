@@ -208,3 +208,27 @@ undefined".
 
 **Comments say what non-obvious code does.** They do not argue for design decisions or explain
 concepts an implementer already knows — that material belongs in this file.
+
+## Releases, and moving to npm
+
+The kit's version is `version` in the root `package.json`, and each release is a git tag of the
+same name (`v0.1.0`, …) on `main`. `bun pm version patch|minor|major` bumps the version, commits
+and tags in one step; `git push --follow-tags` publishes both. A consuming app pins its `kit/`
+submodule to a tag. One tag versions the whole kit: an app cannot take a fix to one adapter without taking every
+other change in the same release.
+
+Publishing to npm is the intended next step, once a second app consumes the kit or it goes public.
+It is not a rename; it takes four changes:
+
+1. **One package per adapter with third-party dependencies** — `obs-sentry`, `metrics-otlp`,
+   `db-postgres` and so on. Subpath exports keep Sentry out of a bundle, but `npm install` still
+   installs every dependency a package declares.
+2. **Ports as `peerDependencies` of their adapters**, so an app always resolves one copy of each
+   port. Two copies break `instanceof` on the port's errors and make the types disagree.
+3. **A build step emitting `.js` and `.d.ts`.** Shipped `.ts` source is typechecked under the
+   consumer's `tsconfig`, which `skipLibCheck` does not cover, and only runs where something
+   transpiles `node_modules`. Building also retires `transpilePackages`.
+4. **Changesets** for independent per-package versions, dependent bumps and changelogs.
+
+An app then swaps `workspace:*` for version ranges and drops the submodule; developing the kit
+against an app becomes `bun link`.
