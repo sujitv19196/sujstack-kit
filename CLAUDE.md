@@ -38,9 +38,11 @@ There is **no build step**. Packages are consumed as TypeScript source and compi
 | `ports/metrics-core` | `MetricSink`, typed counters, `createMetrics`, rule builders. Zero runtime dependencies. |
 | `ports/trpc-core` | `createTrpc<C extends BaseContext>({ genericErrorMessage? })` → `procedure`, `logged`, `router`, …; `TrpcCall`. |
 | `ports/webhook-core` | `WebhookVerifier`, `createWebhookHandler`, `WebhookDelivery`, `runVerifierContract`. No adapters: verifiers are app code. |
+| `ports/jobs-core` | `JobQueue`, `JobWorker`, `loggedHandlers`, `JobRun`, `runJobsContract`. |
 | `adapters/db` | `@sujstack/db-adapters`: `./kv/memory`, `./vector/memory`, `./postgres`. |
 | `adapters/obs` | `@sujstack/obs-adapters`: `./console`, `./sentry`. |
 | `adapters/metrics` | `@sujstack/metrics-adapters`: `./console`, `./otlp`. |
+| `adapters/jobs` | `@sujstack/jobs-adapters`: `./memory`, `./pg-boss`. Its pg-boss tests run only with `TEST_DATABASE_URL` (a direct URL). |
 
 The `-core` packages do not list an adapter package as a dependency, so code holding a port
 physically cannot reach a provider. One subpath export per adapter, so importing one never pulls
@@ -70,9 +72,9 @@ the app's composition root (`createPostgres({ url, schema })`, `createOtlpSink(o
   undefined" — build records with `...(x !== undefined && { x })` rather than assigning `undefined`.
 - `error()` requires its cause and passes it through **raw**; Sentry needs the live `Error`. Do not
   serialize it in the facade.
-- **The kit logs; the app counts.** Ports that observe traffic (`logged`, `createWebhookHandler`)
-  hand a discriminated union to a required callback (`ctx.onCall`, `onDelivery`) and never call
-  `metrics.increment`, so no counter name or label set is defined here.
+- **The kit logs; the app counts.** Ports that observe traffic (`logged`, `createWebhookHandler`,
+  `loggedHandlers`) hand a discriminated union to a required callback (`ctx.onCall`, `onDelivery`,
+  `onRun`) and never call `metrics.increment`, so no counter name or label set is defined here.
 - Metric labels are a type parameter; a label typed as plain `string` is a compile error (the
   cardinality guard). `promName` in `ports/metrics-core/src/counter.ts` owns the OTLP → Prometheus
   name translation.

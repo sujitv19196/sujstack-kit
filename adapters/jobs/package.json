@@ -1,0 +1,22 @@
+{
+  "name": "@sujstack/jobs-adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./memory": "./src/memory.ts",
+    "./pg-boss": "./src/pg-boss.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sujstack/jobs-core": "workspace:*",
+    "pg-boss": "12.35.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  }
+}

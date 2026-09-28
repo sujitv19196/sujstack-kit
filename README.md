@@ -25,9 +25,11 @@ bun run check        # Biome lint + format
 | `ports/metrics-core` — `@sujstack/metrics-core` | `MetricSink`, typed counters, `createMetrics`, alert-rule builders, `renderRules`. |
 | `ports/trpc-core` — `@sujstack/trpc-core` | `createTrpc<Context>()`: the error mask, a bare `procedure` and the `logged` middleware. |
 | `ports/webhook-core` — `@sujstack/webhook-core` | `WebhookVerifier`, the logged `createWebhookHandler`, `WebhookDelivery`, a verifier contract suite. |
+| `ports/jobs-core` — `@sujstack/jobs-core` | `JobQueue`, `JobWorker`, `loggedHandlers`, `JobRun`, a jobs contract suite. |
 | `adapters/db` — `@sujstack/db-adapters` | `./kv/memory`, `./vector/memory`, `./postgres` |
 | `adapters/obs` — `@sujstack/obs-adapters` | `./console`, `./sentry` |
 | `adapters/metrics` — `@sujstack/metrics-adapters` | `./console`, `./otlp` |
+| `adapters/jobs` — `@sujstack/jobs-adapters` | `./memory`, `./pg-boss` |
 
 Ports have no third-party runtime dependencies (`trpc-core` aside, which is tRPC plumbing).
 `webhook-core` has no adapters package: verifiers are written by the app. Each
@@ -137,7 +139,54 @@ runVerifierContract("stripe", { verifier, body: sampleDelivery, sign: signLikeSt
 Providers retry, so the same event can arrive twice; `event.id` is stable across retries, and
 skipping repeats is the app's decision.
 
+## Jobs
+
+```ts
+type Jobs = { "email.digest": { userId: string } }        // name → payload, declared by the app
+
+// Producer, e.g. in a request handler
+await db.transaction(async (tx) => {
+  await tx.insert(digests).values({ userId })
+  await queue.enqueue("email.digest", { userId }, { tx })  // exists only if this commits
+})
+await queue.status("email.digest", id)  // { found: true, state: "completed", attempts, output } | …
+
+// Consumer, in a long-running process
+const worker = createPgBossWorker<Jobs>({ url, policies, onError })
+await worker.start(loggedHandlers<Jobs>(handlers, { log, onRun }))
+```
+
+`JobQueue` enqueues and reports status; `JobWorker` runs handlers. Each job name has a `JobPolicy`
+(`retryLimit`, `timeoutSeconds`), passed to the worker, and `JobHandlers<Jobs>` requires a handler for
+every name, so a worker cannot silently ignore a job. A handler resolves with the job's output or
+throws to fail the attempt; `attempt.final` says whether a retry follows. `loggedHandlers` logs each
+attempt as `job.<name>`: completed at `info`, a throw that will be retried at `warn`, the last one at
+`error` with its cause. It then hands a `JobRun` to `onRun`, where the app counts it.
+
+`./pg-boss` stores jobs in Postgres. `createPgBossQueue({ db, sql })` runs through the app's Drizzle
+database and never starts pg-boss, so a serverless producer opens no pool of its own and can enqueue
+inside its own transaction. `createPgBossWorker({ url, policies, onError })` owns a pool, creates the
+schema and every queue on `start`, and needs a direct connection: pg-boss's schema setup and
+maintenance do not survive a transaction-mode pooler. Until a worker has started, enqueueing throws.
+`./memory` runs both sides in-process and ignores `tx`, for development without a database and for
+tests.
+
 ## Design decisions
+
+**Jobs: transactional enqueue over a separate broker.** A job is usually a consequence of a write —
+send the receipt after the order is saved. With a broker outside the database, the write and the
+enqueue are two commits, and a crash between them loses the job or runs it for a write that rolled
+back. pg-boss keeps jobs in the same Postgres, so `enqueue(..., { tx })` makes them one commit, and a
+job's state, attempts and output are rows the app can read back for `status`. The cost is a worker
+that polls, so a scale-to-zero database never idles while it runs. `Tx` is a type parameter of
+`JobQueue` rather than a kit type, because what a transaction is belongs to the adapter; the memory
+adapter's is `unknown`. Queue creation is the worker's alone: pg-boss wraps it in its own transaction,
+which a pooled producer connection cannot run, and the worker is where the policies live.
+
+**Jobs log per attempt, not per job.** An attempt is the unit that runs, takes time and fails, and a
+retry is where an alert on a flaky dependency starts. Only the final throw logs at `error`: an attempt
+that will be retried is expected turbulence, and paging on it is the flood `logged` avoids for client
+faults.
 
 **Webhooks: a port with no adapters.** `webhook-core` owns what is the same for every provider —
 reading the raw body, verifying before parsing, mapping outcomes to status codes, and logging each
