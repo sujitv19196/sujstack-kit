@@ -4,6 +4,7 @@ import {
   type JobMap,
   type JobPolicies,
   type JobQueue,
+  type JobState,
   type JobStatus,
   type JobWorker,
 } from "@sujstack/jobs-core"
@@ -11,7 +12,7 @@ import {
 interface Entry {
   readonly name: string
   readonly data: object
-  state: "queued" | "active" | "completed" | "failed"
+  state: JobState
   attempts: number
   output?: unknown
   error?: string

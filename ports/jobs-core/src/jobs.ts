@@ -28,6 +28,8 @@ export type JobStatus =
       readonly error: string
     }
 
+export type JobState = Extract<JobStatus, { found: true }>["state"]
+
 export interface EnqueueOptions<Tx> {
   /** The job exists only if this transaction commits. */
   readonly tx: Tx
