@@ -1,9 +1,9 @@
 import type { Log } from "@sujstack/obs-core"
 import { errorMessage, type JobHandler, type JobHandlers, type JobMap } from "./jobs"
 
-/** One attempt's result, as reported to `onRun`. */
-export type JobRun = {
-  readonly name: string
+/** One attempt's result, as reported to `onRun`. `Name` is the app's union of job names. */
+export type JobRun<Name extends string = string> = {
+  readonly name: Name
   readonly id: string
   readonly attempt: number
   readonly durationMs: number
@@ -25,9 +25,11 @@ export function loggedHandlers<Jobs extends JobMap>(
   }: {
     log: Log
     /** Runs after every attempt */
-    onRun: (run: JobRun) => void
+    onRun: (run: JobRun<keyof Jobs & string>) => void
   },
 ): JobHandlers<Jobs> {
+  // Every name passed to `wrap` is a key of `handlers`, so it is a `keyof Jobs`.
+  const report = onRun as (run: JobRun) => void
   const wrap = (name: string, handler: JobHandler<object>): JobHandler<object> => {
     const message = `job.${name}`
     return async (data, attempt) => {
@@ -38,16 +40,16 @@ export function loggedHandlers<Jobs extends JobMap>(
         const output = await handler(data, attempt)
         const durationMs = elapsed()
         log.info(message, { ...run, durationMs })
-        onRun({ ...run, outcome: "completed", durationMs })
+        report({ ...run, outcome: "completed", durationMs })
         return output
       } catch (cause) {
         const durationMs = elapsed()
         if (attempt.final) {
           log.error(message, cause, { ...run, durationMs })
-          onRun({ ...run, outcome: "failed", cause, durationMs })
+          report({ ...run, outcome: "failed", cause, durationMs })
         } else {
           log.warn(message, { ...run, durationMs, reason: errorMessage(cause) })
-          onRun({ ...run, outcome: "retrying", cause, durationMs })
+          report({ ...run, outcome: "retrying", cause, durationMs })
         }
         throw cause
       }

@@ -8,7 +8,7 @@ type Jobs = { "test.job": { fail: boolean } }
 
 function harness() {
   const sink = createMemorySink()
-  const runs: JobRun[] = []
+  const runs: JobRun<"test.job">[] = []
   const handlers = loggedHandlers<Jobs>(
     {
       "test.job": async ({ fail }) => {
@@ -48,4 +48,19 @@ test("a throw logs at warn while retries remain, and at error with the cause on 
     { level: "error", cause: { message: "boom" } },
   ])
   expect(runs.map((run) => run.outcome)).toEqual(["retrying", "failed"])
+})
+
+test("onRun names the job with the app's own union, not a plain string", () => {
+  loggedHandlers<Jobs>(
+    { "test.job": async () => ({}) },
+    {
+      log: createLog([]),
+      onRun: ({ name }) => {
+        const job: keyof Jobs = name
+        // @ts-expect-error a name outside the job map is not assignable
+        const other: "other.job" = name
+        void [job, other]
+      },
+    },
+  )
 })
