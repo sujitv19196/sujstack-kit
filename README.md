@@ -30,9 +30,11 @@ bun run check        # Biome lint + format
 | `adapters/obs` — `@sujstack/obs-adapters` | `./console`, `./sentry` |
 | `adapters/metrics` — `@sujstack/metrics-adapters` | `./console`, `./otlp` |
 | `adapters/jobs` — `@sujstack/jobs-adapters` | `./memory`, `./pg-boss` |
+| `adapters/mcp` — `@sujstack/mcp-adapters` | `./trpc` |
 
 Ports have no third-party runtime dependencies (`trpc-core` aside, which is tRPC plumbing).
-`webhook-core` has no adapters package: verifiers are written by the app. Each
+`webhook-core` has no adapters package: verifiers are written by the app, and `adapters/mcp` has
+no port: it binds tRPC to the MCP SDK directly. Each
 adapter is its own subpath export, so importing the console sink never pulls in Sentry or OTel.
 
 ## Ports and adapters
@@ -111,6 +113,35 @@ onCall: (call) => metrics.increment("trpc.requests", { outcome: call.outcome })
 ```
 
 Errors that never reach a procedure are the app's handler's job.
+
+## MCP
+
+```ts
+const t = createTrpc<Context, McpMeta>()   // procedure meta: { mcp?: { description } }
+
+search: publicProcedure
+  .meta({ mcp: { description: "Finds documents similar to the text." } })
+  .input(z.object({ text: z.string() }))
+  .query(...)
+
+export const POST = createMcpHandler({
+  router: appRouter,
+  createContext,                                  // the same one the tRPC route uses
+  toJsonSchema: (parser) => z.toJSONSchema(parser as z.ZodType, { io: "input" }),
+  genericErrorMessage: "Something went wrong.",
+  server: { name: "my-app", version: "1.0.0" },
+})
+```
+
+`@sujstack/mcp-adapters/trpc` serves every procedure whose meta sets `mcp` as a tool on a stateless
+Streamable HTTP endpoint with JSON responses. The tool's name is the procedure's path with `.` → `_`
+(`docs.search` → `docs_search`), its `inputSchema` comes from the procedure's one `.input()`, and
+queries are marked `readOnlyHint`. Building the handler throws if two paths map to one name, a name
+is not `^[a-zA-Z0-9_-]{1,64}$`, or an input is chained or not an object. A call runs the procedure
+itself, so its middleware — `logged`, and whatever auth the app put on it — runs exactly as it does
+over tRPC. A failed call comes back as `isError` with the client fault's message, or with
+`genericErrorMessage` for a server fault; an unknown tool is a JSON-RPC error, logged as
+`mcp.failed` at `warn`.
 
 ## Webhooks
 
@@ -269,6 +300,20 @@ choosing adapters is. So `createTrpc` returns the pieces (`procedure`, `logged`,
 the app's `init.ts` assembles a logged base and the procedures built on it. The cost is that logging
 is no longer guaranteed by construction: a base procedure that skips `logged` goes unlogged and
 never reaches `onCall`, so the app's request counter and its alert stop seeing it.
+
+**MCP is a bundled adapter, not a port.** Like Drizzle, the MCP SDK is the abstraction: the
+protocol is the interface, and there is no second implementation to swap in. So `adapters/mcp` binds
+a tRPC router to the official SDK directly, and the SDK's dependency tree stays out of every port.
+
+**An MCP tool is a tRPC procedure, called through the procedure.** `createMcpHandler` calls
+`callTRPCProcedure` with a context from the app's own `createContext`, so logging, counting and auth
+are the procedure's, not a parallel set the MCP path could drift from: if a signed-in caller may run
+a procedure over tRPC, the same caller may run it as a tool. Opting in is per procedure and requires
+a description, which is what the model reads to choose a tool. Names come from the full path because
+a bare procedure name collides across routers, and `.` is replaced because the Claude API's tool
+names reject it. The server-side call bypasses `errorFormatter`, so the handler masks server faults
+itself. The endpoint is stateless with JSON responses: each request gets a fresh server and
+transport, which suits serverless functions and needs no session store.
 
 **No tRPC transformer.** superjson mainly exists to stop Drizzle `Date` columns arriving at the
 client as strings while the types still claim `Date`. Timestamp columns use `mode: "string"`

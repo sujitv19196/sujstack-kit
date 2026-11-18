@@ -36,13 +36,14 @@ There is **no build step**. Packages are consumed as TypeScript source and compi
 | `ports/db-core` | `KeyValueStore`, `VectorStore`, `defineNamespace`, contract suites. Zero runtime dependencies. |
 | `ports/obs-core` | `EventSink` + the `createLog` facade. Zero runtime dependencies. |
 | `ports/metrics-core` | `MetricSink`, typed counters, `createMetrics`, rule builders. Zero runtime dependencies. |
-| `ports/trpc-core` | `createTrpc<C extends BaseContext>({ genericErrorMessage? })` → `procedure`, `logged`, `router`, …; `TrpcCall`. |
+| `ports/trpc-core` | `createTrpc<C extends BaseContext, M = object>({ genericErrorMessage? })` → `procedure`, `logged`, `router`, …; `TrpcCall`. |
 | `ports/webhook-core` | `WebhookVerifier`, `createWebhookHandler`, `WebhookDelivery`, `runVerifierContract`. No adapters: verifiers are app code. |
 | `ports/jobs-core` | `JobQueue`, `JobWorker`, `loggedHandlers`, `JobRun`, `runJobsContract`. |
 | `adapters/db` | `@sujstack/db-adapters`: `./kv/memory`, `./vector/memory`, `./postgres`. |
 | `adapters/obs` | `@sujstack/obs-adapters`: `./console`, `./sentry`. |
 | `adapters/metrics` | `@sujstack/metrics-adapters`: `./console`, `./otlp`. |
 | `adapters/jobs` | `@sujstack/jobs-adapters`: `./memory`, `./pg-boss`. Its pg-boss tests run only with `TEST_DATABASE_URL` (a direct URL). |
+| `adapters/mcp` | `@sujstack/mcp-adapters`: `./trpc` — `createMcpHandler`, `McpMeta`. No port: binds tRPC to the MCP SDK directly, like Drizzle. |
 
 The `-core` packages do not list an adapter package as a dependency, so code holding a port
 physically cannot reach a provider. One subpath export per adapter, so importing one never pulls

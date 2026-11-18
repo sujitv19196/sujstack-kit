@@ -14,6 +14,10 @@ function misuse() {
     // @ts-expect-error only a failed call carries an error
     if (call.outcome === "ok") call.error
   }
+  const { procedure } = createTrpc<BaseContext, { tag?: string }>()
+  procedure.meta({ tag: "a" })
+  // @ts-expect-error meta must match the declared shape
+  procedure.meta({ tag: 1 })
   return onCall
 }
 void misuse

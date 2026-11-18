@@ -1,0 +1,22 @@
+{
+  "name": "@sujstack/mcp-adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./trpc": "./src/trpc.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@sujstack/trpc-core": "workspace:*",
+    "@trpc/server": "11.18.0"
+  },
+  "devDependencies": {
+    "@sujstack/obs-core": "workspace:*",
+    "@types/bun": "latest",
+    "zod": "4.4.3"
+  }
+}

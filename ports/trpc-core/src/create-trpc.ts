@@ -19,21 +19,24 @@ export interface BaseContext {
   readonly onCall: (call: TrpcCall) => void
 }
 
-export function createTrpc<C extends BaseContext>({
+export function createTrpc<C extends BaseContext, M extends object = object>({
   genericErrorMessage = GENERIC_API_ERROR_MESSAGE,
 }: {
   genericErrorMessage?: string
 } = {}) {
   // No transformer: every payload is plain JSON.
-  const t = initTRPC.context<C>().create({
-    errorFormatter({ shape, error }) {
-      // A client fault keeps its message: the caller needs it to fix the request. A server fault
-      // is replaced wholesale, so neither the message nor the stack reaches the browser.
-      if (error.code !== "INTERNAL_SERVER_ERROR") return shape
-      const { stack: _stack, ...data } = shape.data
-      return { ...shape, message: genericErrorMessage, data }
-    },
-  })
+  const t = initTRPC
+    .context<C>()
+    .meta<M>()
+    .create({
+      errorFormatter({ shape, error }) {
+        // A client fault keeps its message: the caller needs it to fix the request. A server fault
+        // is replaced wholesale, so neither the message nor the stack reaches the browser.
+        if (error.code !== "INTERNAL_SERVER_ERROR") return shape
+        const { stack: _stack, ...data } = shape.data
+        return { ...shape, message: genericErrorMessage, data }
+      },
+    })
 
   /**
    * Emits one `trpc.<path>` event and one `ctx.onCall` per resolved call. Errors that never reach a
