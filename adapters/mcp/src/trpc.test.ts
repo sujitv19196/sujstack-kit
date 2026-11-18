@@ -9,7 +9,7 @@ import { createMemorySink } from "@sujstack/obs-core/testing"
 import { type BaseContext, createTrpc, type TrpcCall } from "@sujstack/trpc-core"
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { createMcpHandler, type McpMeta } from "./trpc"
+import { createMcpHandler, createMcpTools, type McpMeta } from "./trpc"
 
 const GENERIC = "Something went wrong."
 
@@ -237,6 +237,62 @@ test("a router that cannot be exposed is rejected when the handler is built", ()
       }),
     ),
   ).toThrow("chains 2")
+})
+
+test("createMcpTools gives a caller the tools the endpoint serves, run through their middleware", async () => {
+  type Context = BaseContext & { readonly user: string | null }
+  const { router, procedure, logged, middleware } = createTrpc<Context, McpMeta>()
+  const requireUser = middleware(({ ctx, next }) => {
+    if (ctx.user === null) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in first" })
+    return next({ ctx: { user: ctx.user } })
+  })
+  const appRouter = router({
+    hidden: procedure.use(logged).query(() => "not a tool"),
+    notes: router({
+      add: procedure
+        .use(logged)
+        .use(requireUser)
+        .meta({ mcp: { description: "Adds a note." } })
+        .input(z.object({ text: z.string() }))
+        .mutation(({ ctx, input }) => ({ by: ctx.user, text: input.text })),
+      boom: procedure
+        .use(logged)
+        .meta({ mcp: { description: "Fails." } })
+        .query(() => {
+          throw new Error("internal detail")
+        }),
+    }),
+  })
+  const tools = createMcpTools({
+    router: appRouter,
+    toJsonSchema: (parser) => z.toJSONSchema(parser as z.ZodType, { io: "input" }),
+    genericErrorMessage: GENERIC,
+  })
+  const context = (user: string | null): Context => ({
+    log: createLog([createMemorySink()]),
+    onCall: () => {},
+    user,
+  })
+  const signal = new AbortController().signal
+
+  expect([...tools.keys()]).toEqual(["notes_add", "notes_boom"])
+  expect(tools.get("notes_add")?.definition).toMatchObject({
+    name: "notes_add",
+    description: "Adds a note.",
+    annotations: { readOnlyHint: false },
+  })
+
+  const added = await tools.get("notes_add")?.call(context("ada"), { text: "hi" }, signal)
+  expect(added).toMatchObject({ structuredContent: { by: "ada", text: "hi" } })
+
+  const refused = await tools.get("notes_add")?.call(context(null), { text: "hi" }, signal)
+  expect(refused).toMatchObject({
+    isError: true,
+    content: [{ type: "text", text: "Sign in first" }],
+  })
+
+  const failed = await tools.get("notes_boom")?.call(context("ada"), {}, signal)
+  expect(failed).toMatchObject({ isError: true, content: [{ type: "text", text: GENERIC }] })
 })
 
 // Never called: `bun run typecheck` fails if any line below stops being a type error.

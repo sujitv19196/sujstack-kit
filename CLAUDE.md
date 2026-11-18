@@ -48,7 +48,7 @@ Task skills (`write-adapter`, `release-kit`) are in `.claude/skills/`.
 | `adapters/obs` | `@sujstack/obs-adapters`: `./console`, `./sentry`. |
 | `adapters/metrics` | `@sujstack/metrics-adapters`: `./console`, `./otlp`. |
 | `adapters/jobs` | `@sujstack/jobs-adapters`: `./memory`, `./pg-boss`. Its pg-boss tests run only with `TEST_DATABASE_URL` (a direct URL). |
-| `adapters/mcp` | `@sujstack/mcp-adapters`: `./trpc` — `createMcpHandler`, `McpMeta`. No port: binds tRPC to the MCP SDK directly, like Drizzle. |
+| `adapters/mcp` | `@sujstack/mcp-adapters`: `./trpc` — `createMcpHandler`, `createMcpTools`, `McpMeta`. No port: binds tRPC to the MCP SDK directly, like Drizzle. |
 
 The `-core` packages do not list an adapter package as a dependency, so code holding a port
 physically cannot reach a provider. One subpath export per adapter, so importing one never pulls

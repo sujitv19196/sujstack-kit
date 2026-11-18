@@ -143,6 +143,12 @@ over tRPC. A failed call comes back as `isError` with the client fault's message
 `genericErrorMessage` for a server fault; an unknown tool is a JSON-RPC error, logged as
 `mcp.failed` at `warn`.
 
+`createMcpTools({ router, toJsonSchema, genericErrorMessage })` is the same tool set without the
+endpoint: a map from tool name to its MCP `definition` and a `call(ctx, args, signal)` that runs the
+procedure and returns a `CallToolResult`. `createMcpHandler` is built on it. An app that runs its
+own model loop (an in-app assistant) uses it to offer the model exactly the tools MCP clients get,
+under whatever context the app builds for the call.
+
 ## Webhooks
 
 ```ts
