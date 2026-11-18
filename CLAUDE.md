@@ -25,9 +25,14 @@ standalone in a separate clone instead.
 (bumps the root `version`, commits and tags `vX.Y.Z`), then `git push --follow-tags`. Never hand-edit
 `version` or create a tag separately, or they drift. `0.x` while the API settles: a breaking change
 bumps the minor. Apps pin their submodule to tags, never to untagged commits.
+In a mounted submodule `.git` is a file, and `bun pm version` then edits `package.json` without
+committing or tagging: release from a standalone clone, or finish with `git commit -am vX.Y.Z` and
+`git tag -a vX.Y.Z -m vX.Y.Z` — the same commit and annotated tag it would have made.
 
 There is **no build step**. Packages are consumed as TypeScript source and compiled by the app
 (e.g. Next's `transpilePackages`). A new package must be added to each consuming app's list.
+
+Task skills (`write-adapter`, `release-kit`) are in `.claude/skills/`.
 
 ## Layout
 
