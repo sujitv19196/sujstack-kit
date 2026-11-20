@@ -386,3 +386,7 @@ It is not a rename; it takes four changes:
 
 An app then swaps `workspace:*` for version ranges and drops the submodule; developing the kit
 against an app becomes `bun link`.
+
+## License
+
+Copyright © 2026 sujitv19196. All rights reserved.
